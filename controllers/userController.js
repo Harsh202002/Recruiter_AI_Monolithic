@@ -116,19 +116,11 @@ const getUser = async (req, res) => {
 // @access  Private (Company Admin, RMG Admin)
 const createUser = async (req, res) => {
     // Only one company admin per tenant
-    if (role === 'company_admin') {
-      const existingAdmin = await User.findOne({ role: 'company_admin', isActive: true });
-      if (existingAdmin) {
-        return res.status(400).json({
-          success: false,
-          message: 'Only one company admin is allowed per tenant.'
-        });
-      }
-    }
   try {
     const { name, email, role, department, phone } = req.body;
 
     const User = require('../models/tenant/User')(req.db);
+
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
@@ -137,6 +129,17 @@ const createUser = async (req, res) => {
         success: false,
         message: 'User with this email already exists'
       });
+    }
+
+    
+       if (role === 'company_admin') {
+      const existingAdmin = await User.findOne({ role: 'company_admin', isActive: true });
+      if (existingAdmin) {
+        return res.status(400).json({
+          success: false,
+          message: 'Only one company admin is allowed per tenant.'
+        });
+      }
     }
 
     // Only one RMG admin per tenant
