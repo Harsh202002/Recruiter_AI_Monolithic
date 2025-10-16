@@ -11,6 +11,7 @@ const {
   deleteJob,
   publishJob,
   closeJob,
+  createAIJob,
   getJobApplications
 } = require('../controllers/jobController');
 
@@ -29,5 +30,6 @@ router.delete('/:id', deleteJob);
 router.patch('/:id/publish', authorize('company_admin', 'recruiter'), publishJob);
 router.patch('/:id/close', authorize('company_admin', 'recruiter'), closeJob);
 router.get('/:id/applications', getJobApplications);
+router.post('/ai-generate', protect, authorize('company_admin', 'recruiter'), createAIJob);
 
 module.exports = router;

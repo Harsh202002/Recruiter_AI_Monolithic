@@ -541,6 +541,129 @@ const getJobApplications = async (req, res) => {
   }
 };
 
+const { generateJobDescription } = require('../utils/geminiAI');
+
+// @desc    Create AI-generated job description
+// @route   POST /api/jobs/ai-generate
+// @access  Private (Company Admin, Recruiter)
+const createAIJob = async (req, res) => {
+  try {
+    const {
+      requirementId,
+      location,
+      employmentType,
+      experience,
+      applicationDeadline
+    } = req.body;
+
+    if (!requirementId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Requirement ID is required'
+      });
+    }
+
+    const JobDescription = require('../models/tenant/JobDescription')(req.db);
+    const Requirement = require('../models/tenant/Requirement')(req.db);
+
+    // Fetch requirement details
+    const requirement = await Requirement.findById(requirementId);
+    
+    if (!requirement) {
+      return res.status(404).json({
+        success: false,
+        message: 'Requirement not found'
+      });
+    }
+
+    // Check if user can create job for this requirement
+    const canCreate = req.user.role === 'company_admin' ||
+                     (req.user.role === 'recruiter' && 
+                      requirement.assignedTo && 
+                      requirement.assignedTo.toString() === req.user._id.toString());
+
+    if (!canCreate) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to create job for this requirement'
+      });
+    }
+
+    // Safely handle skills - ensure it's always an array
+    const requiredSkills = Array.isArray(requirement.skills) 
+      ? requirement.skills
+      : typeof requirement.skills === 'string' 
+        ? [requirement.skills]
+        : [];
+
+    // Prepare data for AI generation
+    const aiInputData = {
+      title: requirement.title,
+      industry: req.tenant.industry || 'Technology',
+      companySize: req.tenant.companySize || '50-200',
+      experience: experience,
+      requiredSkills: requiredSkills.join(', '),
+      location: location || requirement.location,
+      employmentType: employmentType || 'Full-Time',
+      businessContext: requirement.description || '',
+      companyName: req.tenant.companyName,
+      jobType: requirement.jobType || 'Permanent',
+      salaryRange: requirement.salary 
+        ? `${requirement.salary.min} - ${requirement.salary.max} ${requirement.salary.currency}` 
+        : 'Competitive'
+    };
+
+    // Generate AI job description
+    const aiGeneratedContent = await generateJobDescription(aiInputData);
+    const parsedContent = JSON.parse(aiGeneratedContent);
+
+    // Format experience object properly
+    const experienceObj = {
+      minimum: requirement.experienceRequired || 0,
+      maximum: requirement.experienceRequired + 2 || 2, // Add a reasonable range
+      preferredYears: requirement.experienceRequired || 1
+    };
+
+    // Create job with AI-generated content
+    const job = await JobDescription.create({
+      requirementId,
+      title: requirement.title,
+      description: parsedContent.description,
+      responsibilities: parsedContent.responsibilities,
+      qualifications: parsedContent.qualifications,
+      skills: {
+        required: requiredSkills,
+        preferred: parsedContent.niceToHaveSkills || []
+      },
+      experience: experienceObj, // Use properly formatted experience object
+      location: location || requirement.location,
+      employmentType: employmentType || 'Full-Time',
+      salary: requirement.salary,
+      benefits: parsedContent.benefits,
+      applicationDeadline: applicationDeadline || requirement.dueDate,
+      createdBy: req.user._id,
+      isAIGenerated: true,
+      status: 'draft'
+    });
+
+    await job.populate('requirementId', 'title priority');
+    await job.populate('createdBy', 'name email');
+
+    res.status(201).json({
+      success: true,
+      message: 'AI-generated job description created successfully',
+      data: { job }
+    });
+  } catch (error) {
+    console.error('Create AI job error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error creating AI job description',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getJobs,
   getJob,
@@ -550,5 +673,6 @@ module.exports = {
   deleteJob,
   publishJob,
   closeJob,
-  getJobApplications
+  getJobApplications,
+  createAIJob
 };
